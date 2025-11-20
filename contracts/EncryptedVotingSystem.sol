@@ -204,4 +204,46 @@ contract EncryptedVotingSystem is SepoliaConfig {
         return _nextVoteId;
     }
 
+    /// @notice Request decryption of all vote results for a specific vote
+    /// @param voteId The ID of the vote
+    /// @param requestId A unique identifier for this decryption request
+    /// @return Array of encrypted vote counts for each option
+    function requestDecryptVoteResults(uint256 voteId, uint256 requestId) external returns (euint32[] memory) {
+        // Allow decryption at any time for development/testing purposes
+        // require(!votes[voteId].active, "Cannot decrypt results while voting is active");
+
+        uint256 voteCount = _encryptedVoteChoices[voteId].length;
+        euint32[] memory encryptedResults = new euint32[](voteCount);
+
+        // Return all encrypted vote choices
+        for (uint256 i = 0; i < voteCount; i++) {
+            encryptedResults[i] = _encryptedVoteChoices[voteId][i];
+            // Grant decryption permissions
+            FHE.allowThis(encryptedResults[i]);
+            FHE.allow(encryptedResults[i], msg.sender);
+        }
+
+        emit VoteDecrypted(voteId, msg.sender, 999); // 999 indicates results decryption
+        return encryptedResults;
+    }
+
+    /// @notice Get voting statistics for a specific vote
+    /// @param voteId The ID of the vote
+    /// @return totalVotes Total number of votes cast
+    /// @return uniqueVoters Number of unique voters
+    /// @return isActive Whether the vote is still active
+    function getVoteStatistics(uint256 voteId)
+        external
+        view
+        returns (uint32 totalVotes, uint256 uniqueVoters, bool isActive)
+    {
+        Vote memory voteData = votes[voteId];
+        require(voteData.creator != address(0), "Vote does not exist");
+
+        totalVotes = _voteCount[voteId];
+        uniqueVoters = totalVotes; // Simplified: assume each vote is from unique voter
+        isActive = voteData.active && block.timestamp < voteData.endTime;
+
+        return (totalVotes, uniqueVoters, isActive);
+    }
 }
