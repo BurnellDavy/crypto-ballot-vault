@@ -246,4 +246,41 @@ contract EncryptedVotingSystem is SepoliaConfig {
 
         return (totalVotes, uniqueVoters, isActive);
     }
+
+    /// @notice Cast multiple encrypted votes in a single transaction
+    /// @param voteIds Array of vote IDs to cast votes for
+    /// @param encryptedChoices Array of encrypted vote choices
+    /// @param inputProofs Array of FHE input proofs
+    function batchCastVotes(
+        uint256[] calldata voteIds,
+        externalEuint32[] calldata encryptedChoices,
+        bytes[] calldata inputProofs
+    ) external {
+        require(voteIds.length == encryptedChoices.length, "Array length mismatch");
+        require(voteIds.length == inputProofs.length, "Array length mismatch");
+        require(voteIds.length > 0, "Cannot cast empty batch");
+        require(voteIds.length <= 5, "Batch size limited to 5 votes for gas efficiency");
+
+        for (uint256 i = 0; i < voteIds.length; i++) {
+            uint256 voteId = voteIds[i];
+            Vote memory voteData = votes[voteId];
+            require(voteData.creator != address(0), "Vote does not exist");
+            require(voteData.active && block.timestamp >= voteData.startTime && block.timestamp <= voteData.endTime, "Vote not active");
+            require(!_hasVoted[voteId][msg.sender], "Already voted");
+
+            // Convert external input to internal FHE type
+            euint32 encryptedChoice = FHE.fromExternal(encryptedChoices[i], inputProofs[i]);
+
+            // Store the encrypted vote choice
+            _encryptedVoteChoices[voteId].push(encryptedChoice);
+            _hasVoted[voteId][msg.sender] = true;
+            _voteCount[voteId]++;
+
+            // Grant decryption permissions
+            FHE.allowThis(encryptedChoice);
+            FHE.allow(encryptedChoice, msg.sender);
+
+            emit VoteCast(voteId, msg.sender, block.timestamp);
+        }
+    }
 }
