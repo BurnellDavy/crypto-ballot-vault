@@ -84,7 +84,8 @@
     "deploy-sepolia": "hardhat deploy --network sepolia",
     "setup-voting": "node scripts/setup-voting.mjs",
     "setup-voting:custom": "node scripts/setup-voting.mjs",
-    "frontend-dev": "cd frontend && npm run dev"
+    "frontend-dev": "cd frontend && npm run dev",
+    "analyze": "npm run compile && npm run test"
   },
   "overrides": {
     "ws@>=7.0.0 <7.5.10": ">=7.5.10",
