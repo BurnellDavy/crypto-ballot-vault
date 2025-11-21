@@ -2,6 +2,11 @@
 
 A privacy-preserving voting platform built with FHEVM (Fully Homomorphic Encryption Virtual Machine) technology. Users can cast their votes in encrypted form, ensuring complete privacy while maintaining the integrity of the voting process.
 
+## 🔗 Links
+
+- **📹 Demo Video**: [Watch on GitHub](https://github.com/BurnellDavy/crypto-ballot-vault/blob/main/crypt-vote.mp4)
+- **🌐 Live Demo**: [View on Vercel](https://crypto-vote-two.vercel.app/)
+
 ## Features
 
 - **Privacy-Preserving**: Votes are encrypted using FHEVM, ensuring voter privacy
