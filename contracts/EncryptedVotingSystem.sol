@@ -10,6 +10,7 @@ import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 /// Users can create votes, cast encrypted votes, and decrypt results securely.
 /// Uses fully homomorphic encryption for privacy protection.
 /// Supports both local Hardhat network (with mock) and Sepolia testnet.
+/// Enhanced with batch operations and comprehensive analytics.
 contract EncryptedVotingSystem is SepoliaConfig {
     // Network detection for different FHEVM configurations
     bool private immutable _isLocalNetwork;
