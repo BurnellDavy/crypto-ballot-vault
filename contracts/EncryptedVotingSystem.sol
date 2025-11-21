@@ -300,4 +300,30 @@ contract EncryptedVotingSystem is SepoliaConfig {
 
         return optionIndex < voteData.options.length;
     }
+
+    /// @notice Get voting participation rate for a specific vote
+    /// @param voteId The ID of the vote
+    /// @param expectedParticipants Expected number of participants
+    /// @return participationRate Participation rate as percentage (0-100)
+    /// @return actualVotes Number of votes cast
+    function getParticipationRate(uint256 voteId, uint256 expectedParticipants)
+        external
+        view
+        returns (uint256 participationRate, uint32 actualVotes)
+    {
+        Vote memory voteData = votes[voteId];
+        require(voteData.creator != address(0), "Vote does not exist");
+
+        actualVotes = _voteCount[voteId];
+        if (expectedParticipants == 0) {
+            participationRate = 0;
+        } else {
+            participationRate = (actualVotes * 100) / expectedParticipants;
+            if (participationRate > 100) {
+                participationRate = 100;
+            }
+        }
+
+        return (participationRate, actualVotes);
+    }
 }
