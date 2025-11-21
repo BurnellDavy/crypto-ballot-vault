@@ -326,4 +326,44 @@ contract EncryptedVotingSystem is SepoliaConfig {
 
         return (participationRate, actualVotes);
     }
+
+    /// @notice Initialize multiple votes in a single transaction
+    /// @param titles Array of vote titles
+    /// @param descriptions Array of vote descriptions
+    /// @param optionsList Array of option arrays for each vote
+    /// @param startTimes Array of start times
+    /// @param endTimes Array of end times
+    function batchInitializeVotes(
+        string[] calldata titles,
+        string[] calldata descriptions,
+        string[][] calldata optionsList,
+        uint256[] calldata startTimes,
+        uint256[] calldata endTimes
+    ) external {
+        require(titles.length == descriptions.length, "Array length mismatch");
+        require(titles.length == optionsList.length, "Array length mismatch");
+        require(titles.length == startTimes.length, "Array length mismatch");
+        require(titles.length == endTimes.length, "Array length mismatch");
+        require(titles.length > 0, "Cannot initialize empty batch");
+        require(titles.length <= 10, "Batch size limited to 10 votes for gas efficiency");
+
+        for (uint256 i = 0; i < titles.length; i++) {
+            require(optionsList[i].length >= 2, "Each vote must have at least 2 options");
+            require(optionsList[i].length <= 10, "Each vote limited to 10 options");
+            require(startTimes[i] < endTimes[i], "Start time must be before end time");
+
+            votes[_nextVoteId] = Vote({
+                title: titles[i],
+                description: descriptions[i],
+                options: optionsList[i],
+                startTime: startTimes[i],
+                endTime: endTimes[i],
+                active: true,
+                creator: msg.sender
+            });
+
+            emit VoteCreated(_nextVoteId, msg.sender, titles[i]);
+            _nextVoteId++;
+        }
+    }
 }
