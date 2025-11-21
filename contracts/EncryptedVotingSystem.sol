@@ -283,4 +283,21 @@ contract EncryptedVotingSystem is SepoliaConfig {
             emit VoteCast(voteId, msg.sender, block.timestamp);
         }
     }
+
+    /// @notice Validate voting option input
+    /// @param optionIndex The index of the voting option
+    /// @param voteId The ID of the vote
+    /// @return isValid True if the option is valid for the given vote
+    function validateVoteOption(uint256 voteId, uint256 optionIndex)
+        external
+        view
+        returns (bool isValid)
+    {
+        Vote memory voteData = votes[voteId];
+        if (voteData.creator == address(0)) {
+            return false;
+        }
+
+        return optionIndex < voteData.options.length;
+    }
 }
