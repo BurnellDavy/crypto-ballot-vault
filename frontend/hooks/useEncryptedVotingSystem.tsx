@@ -48,6 +48,60 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
   const [votes, setVotes] = useState<Vote[]>([]);
   const [currentVote, setCurrentVote] = useState<Vote | null>(null);
   const [userVotes, setUserVotes] = useState<Record<number, string>>({});
+  // Helper functions for localStorage persistence
+  const getStorageKey = useCallback((suffix: string) => {
+    if (!contractAddress || !address) return null;
+    return `crypto-vote:${contractAddress}:${address}:${suffix}`;
+  }, [contractAddress, address]);
+
+  const loadDecryptedResultsFromStorage = useCallback((): Record<number, VoteResult[]> => {
+    const key = getStorageKey("decryptedResults");
+    if (!key || typeof window === "undefined") return {};
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      console.warn("[useEncryptedVotingSystem] Failed to load decrypted results from storage:", error);
+    }
+    return {};
+  }, [getStorageKey]);
+
+  const saveDecryptedResultsToStorage = useCallback((results: Record<number, VoteResult[]>) => {
+    const key = getStorageKey("decryptedResults");
+    if (!key || typeof window === "undefined") return;
+    try {
+      localStorage.setItem(key, JSON.stringify(results));
+    } catch (error) {
+      console.warn("[useEncryptedVotingSystem] Failed to save decrypted results to storage:", error);
+    }
+  }, [getStorageKey]);
+
+  const loadDecryptedUserVotesFromStorage = useCallback((): Record<number, number> => {
+    const key = getStorageKey("decryptedUserVotes");
+    if (!key || typeof window === "undefined") return {};
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      console.warn("[useEncryptedVotingSystem] Failed to load decrypted user votes from storage:", error);
+    }
+    return {};
+  }, [getStorageKey]);
+
+  const saveDecryptedUserVotesToStorage = useCallback((userVotes: Record<number, number>) => {
+    const key = getStorageKey("decryptedUserVotes");
+    if (!key || typeof window === "undefined") return;
+    try {
+      localStorage.setItem(key, JSON.stringify(userVotes));
+    } catch (error) {
+      console.warn("[useEncryptedVotingSystem] Failed to save decrypted user votes to storage:", error);
+    }
+  }, [getStorageKey]);
+
   const [decryptedResults, setDecryptedResults] = useState<Record<number, VoteResult[]>>({});
   const [decryptedUserVotes, setDecryptedUserVotes] = useState<Record<number, number>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -204,8 +258,44 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
 
         setMessage(`Vote "${title}" created successfully with ID: ${voteId}`);
 
-        // Refresh votes list
-        await loadVotes();
+        // Refresh votes list immediately
+        try {
+          // Create a fresh provider for loading
+          let provider: ethers.Provider;
+          if (chainId === 31337) {
+            provider = new ethers.JsonRpcProvider("http://localhost:8545");
+          } else {
+            provider = ethersProvider!;
+          }
+          
+          const refreshContract = new ethers.Contract(contractAddress, EncryptedVotingSystemABI, provider);
+          const nextVoteIdAfter = await refreshContract.getNextVoteId();
+          const voteCountAfter = Number(nextVoteIdAfter);
+          
+          const loadedVotes: Vote[] = [];
+          for (let i = 1; i < voteCountAfter; i++) {
+            try {
+              const voteData = await refreshContract.getVote(i);
+              const vote: Vote = {
+                id: i,
+                title: voteData.title,
+                description: voteData.description,
+                options: voteData.options,
+                startTime: Number(voteData.startTime),
+                endTime: Number(voteData.endTime),
+                active: voteData.active,
+                creator: voteData.creator
+              };
+              loadedVotes.push(vote);
+            } catch (error) {
+              console.warn(`Failed to load vote ${i}:`, error);
+            }
+          }
+          setVotes(loadedVotes);
+          console.log("[useEncryptedVotingSystem] Votes refreshed after creation:", loadedVotes.length);
+        } catch (error) {
+          console.error("[useEncryptedVotingSystem] Error refreshing votes after creation:", error);
+        }
 
         return voteId;
       } catch (error: any) {
@@ -217,7 +307,7 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
         setIsLoading(false);
       }
     },
-    [contractAddress, ethersSigner, ethersProvider, address]
+    [contractAddress, ethersSigner, ethersProvider, address, chainId]
   );
 
   const castVote = useCallback(
@@ -295,14 +385,43 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
 
         setMessage("Vote cast successfully! Your vote has been encrypted and recorded.");
 
-        // Update user votes
+        // Update user votes immediately
+        const voteHandle = ethers.hexlify(encryptedOptionHandle);
         setUserVotes(prev => ({
           ...prev,
-          [voteId]: ethers.hexlify(encryptedOptionHandle)
+          [voteId]: voteHandle
         }));
 
-        // Refresh vote data
-        await refreshVote(voteId);
+        // Refresh vote data immediately
+        try {
+          // Create a fresh provider for loading
+          let provider: ethers.Provider;
+          if (chainId === 31337) {
+            provider = new ethers.JsonRpcProvider("http://localhost:8545");
+          } else {
+            provider = ethersProvider!;
+          }
+          
+          const refreshContract = new ethers.Contract(contractAddress, EncryptedVotingSystemABI, provider);
+          
+          // Reload specific vote
+          const voteData = await refreshContract.getVote(voteId);
+          const updatedVote: Vote = {
+            id: voteId,
+            title: voteData.title,
+            description: voteData.description,
+            options: voteData.options,
+            startTime: Number(voteData.startTime),
+            endTime: Number(voteData.endTime),
+            active: voteData.active,
+            creator: voteData.creator
+          };
+          
+          setVotes(prev => prev.map(vote => vote.id === voteId ? updatedVote : vote));
+          console.log("[useEncryptedVotingSystem] Vote refreshed after casting:", voteId);
+        } catch (error) {
+          console.error("[useEncryptedVotingSystem] Error refreshing vote after casting:", error);
+        }
 
       } catch (error: any) {
         const errorMessage = error.reason || error.message || String(error);
@@ -313,7 +432,7 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
         setIsLoading(false);
       }
     },
-    [contractAddress, ethersSigner, fhevmInstance, ethersProvider, address]
+    [contractAddress, ethersSigner, fhevmInstance, ethersProvider, address, chainId]
   );
 
   const decryptUserVote = useCallback(
@@ -435,8 +554,12 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
         const decryptedResult = await (fhevmInstance as any).userDecrypt(
           handleContractPairs,
           keypair.privateKey,
+          keypair.publicKey,
           signatureForDecrypt,
-          contractAddresses
+          contractAddresses,
+          address as `0x${string}`,
+          startTimestamp,
+          durationDays
         );
 
         console.log("[useEncryptedVotingSystem] Decryption successful:", decryptedResult);
@@ -457,19 +580,29 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
         }));
 
         // Store results
-        setDecryptedResults(prev => ({
-          ...prev,
-          [voteId]: results
-        }));
+        setDecryptedResults(prev => {
+          const updated = {
+            ...prev,
+            [voteId]: results
+          };
+          // Persist to localStorage
+          saveDecryptedResultsToStorage(updated);
+          return updated;
+        });
 
         // Extract user's vote from the decrypted results using the correct user vote handle
         const userVoteHandle = userVotes[voteId];
         if (userVoteHandle) {
           const decryptedVote = Number(decryptedResult[userVoteHandle] || 0);
-          setDecryptedUserVotes(prev => ({
-            ...prev,
-            [voteId]: decryptedVote
-          }));
+          setDecryptedUserVotes(prev => {
+            const updated = {
+              ...prev,
+              [voteId]: decryptedVote
+            };
+            // Persist to localStorage
+            saveDecryptedUserVotesToStorage(updated);
+            return updated;
+          });
         } else {
           console.warn("[useEncryptedVotingSystem] No user vote handle found for voteId:", voteId);
         }
@@ -490,7 +623,7 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
         throw error;
       }
     },
-    [contractAddress, ethersProvider, fhevmInstance, ethersSigner, address, chainId]
+    [contractAddress, ethersProvider, fhevmInstance, ethersSigner, address, chainId, userVotes, saveDecryptedResultsToStorage, saveDecryptedUserVotesToStorage]
   );
 
   const decryptVoteResults = useCallback(
@@ -542,10 +675,14 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
         if (handleContractPairs.length === 0) {
           // No votes cast yet
           setMessage("No votes have been cast in this vote yet");
-          setDecryptedResults(prev => ({
-            ...prev,
-            [voteId]: []
-          }));
+          setDecryptedResults(prev => {
+            const updated = {
+              ...prev,
+              [voteId]: []
+            };
+            saveDecryptedResultsToStorage(updated);
+            return updated;
+          });
           return [];
         }
 
@@ -649,10 +786,15 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
         setMessage(`Voting results decrypted successfully`);
 
         // Store decrypted results
-        setDecryptedResults(prev => ({
-          ...prev,
-          [voteId]: results
-        }));
+        setDecryptedResults(prev => {
+          const updated = {
+            ...prev,
+            [voteId]: results
+          };
+          // Persist to localStorage
+          saveDecryptedResultsToStorage(updated);
+          return updated;
+        });
 
         return results;
       } catch (error: any) {
@@ -667,20 +809,42 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
         throw error;
       }
     },
-    [contractAddress, ethersProvider, fhevmInstance, ethersSigner, address, chainId]
+    [contractAddress, ethersProvider, fhevmInstance, ethersSigner, address, chainId, saveDecryptedResultsToStorage]
   );
 
   const loadVotes = useCallback(async () => {
-    if (!contractAddress || !ethersProvider) {
+    if (!contractAddress) {
       return;
     }
 
     try {
       setIsLoading(true);
 
+      // Create a provider - use ethersProvider if available, otherwise create one
+      let provider: ethers.Provider | undefined = ethersProvider;
+      if (!provider) {
+        // Create a new provider based on chainId
+        if (chainId === 31337) {
+          provider = new ethers.JsonRpcProvider("http://localhost:8545");
+        } else {
+          // For other networks, we need the walletClient
+          if (!walletClient) {
+            console.log("[useEncryptedVotingSystem] No provider or walletClient available, skipping loadVotes");
+            return;
+          }
+          provider = new ethers.BrowserProvider(walletClient as any) as any;
+        }
+      }
+
+      // Ensure provider is defined before proceeding
+      if (!provider) {
+        console.log("[useEncryptedVotingSystem] Provider is still undefined, skipping loadVotes");
+        return;
+      }
+
       // Check if we can connect to the provider first
       try {
-        await ethersProvider.getBlockNumber();
+        await provider.getBlockNumber();
       } catch (providerError: any) {
         if (chainId === 31337) {
           const errorMsg = "Cannot connect to Hardhat node. Please ensure 'npx hardhat node' is running on http://localhost:8545";
@@ -691,13 +855,13 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
         }
       }
 
-      const contractCode = await ethersProvider.getCode(contractAddress);
+      const contractCode = await provider.getCode(contractAddress);
       if (contractCode === "0x" || contractCode.length <= 2) {
         setMessage(`Contract not deployed at ${contractAddress}. Please deploy the contract first.`);
         return;
       }
 
-      const contract = new ethers.Contract(contractAddress, EncryptedVotingSystemABI, ethersProvider);
+      const contract = new ethers.Contract(contractAddress, EncryptedVotingSystemABI, provider);
 
       // Get next vote ID to know how many votes exist
       const nextVoteId = await contract.getNextVoteId();
@@ -727,6 +891,41 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
       }
 
       setVotes(loadedVotes);
+      
+      // Load user's voting status for all votes
+      if (address) {
+        const userVotesMap: Record<number, string> = {};
+        for (const vote of loadedVotes) {
+          try {
+            const hasVoted = await contract.hasVotedInVote(vote.id, address);
+            if (hasVoted) {
+              try {
+                // Get the user's encrypted vote handle
+                // Note: In a real implementation, we'd need a method to get the specific user's vote
+                // For now, we'll use a placeholder to indicate the user has voted
+                const encryptedVotes = await contract.getEncryptedVoteChoices(vote.id);
+                if (encryptedVotes.length > 0) {
+                  // Store a marker that user has voted (we'll use the first encrypted vote as a placeholder)
+                  // In production, we'd need to track which encrypted vote belongs to which user
+                  userVotesMap[vote.id] = ethers.hexlify(encryptedVotes[0]);
+                } else {
+                  // User has voted but we can't get the handle, use a placeholder
+                  userVotesMap[vote.id] = "0x1"; // Placeholder to indicate user has voted
+                }
+              } catch (error) {
+                // If we can't get encrypted votes, still mark that user has voted
+                userVotesMap[vote.id] = "0x1"; // Placeholder
+                console.warn(`[useEncryptedVotingSystem] Could not get encrypted vote for vote ${vote.id}:`, error);
+              }
+            }
+          } catch (error) {
+            console.warn(`[useEncryptedVotingSystem] Could not check voting status for vote ${vote.id}:`, error);
+          }
+        }
+        // Update userVotes state, preserving existing entries
+        setUserVotes(prev => ({ ...prev, ...userVotesMap }));
+      }
+      
       setMessage(`Loaded ${loadedVotes.length} votes`);
     } catch (error: any) {
       console.error("[useEncryptedVotingSystem] Error loading votes:", error);
@@ -744,15 +943,28 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
     } finally {
       setIsLoading(false);
     }
-  }, [contractAddress, ethersProvider, chainId]);
+  }, [contractAddress, ethersProvider, chainId, address, walletClient]);
 
   const refreshVote = useCallback(async (voteId: number) => {
-    if (!contractAddress || !ethersProvider || !address) {
+    if (!contractAddress || !address) {
       return;
     }
 
     try {
-      const contract = new ethers.Contract(contractAddress, EncryptedVotingSystemABI, ethersProvider);
+      // Create a provider - use ethersProvider if available, otherwise create one
+      let provider = ethersProvider;
+      if (!provider) {
+        if (chainId === 31337) {
+          provider = new ethers.JsonRpcProvider("http://localhost:8545");
+        } else if (walletClient) {
+          provider = new ethers.BrowserProvider(walletClient as any) as any;
+        } else {
+          console.log("[useEncryptedVotingSystem] No provider available for refreshVote");
+          return;
+        }
+      }
+
+      const contract = new ethers.Contract(contractAddress, EncryptedVotingSystemABI, provider);
 
       // Reload specific vote
       const voteData = await contract.getVote(voteId);
@@ -769,7 +981,7 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
 
       setVotes(prev => prev.map(vote => vote.id === voteId ? updatedVote : vote));
 
-      // Check if user has voted
+      // Check if user has voted and update userVotes
       const hasVoted = await contract.hasVotedInVote(voteId, address);
       if (hasVoted) {
         try {
@@ -782,21 +994,61 @@ export function useEncryptedVotingSystem(contractAddress: string | undefined): U
               ...prev,
               [voteId]: handle
             }));
+          } else {
+            // User has voted but we can't get the handle, use a placeholder
+            setUserVotes(prev => ({
+              ...prev,
+              [voteId]: "0x1" // Placeholder to indicate user has voted
+            }));
           }
         } catch (error) {
+          // If we can't get encrypted votes, still mark that user has voted
+          setUserVotes(prev => ({
+            ...prev,
+            [voteId]: "0x1" // Placeholder
+          }));
           console.warn(`[useEncryptedVotingSystem] Could not get encrypted votes for vote ${voteId}:`, error);
         }
+      } else {
+        // User hasn't voted, remove from userVotes if present
+        setUserVotes(prev => {
+          const updated = { ...prev };
+          delete updated[voteId];
+          return updated;
+        });
       }
     } catch (error) {
       console.error(`[useEncryptedVotingSystem] Error refreshing vote ${voteId}:`, error);
     }
-  }, [contractAddress, ethersProvider, address]);
+  }, [contractAddress, ethersProvider, address, chainId, walletClient]);
 
+  // Load decrypted results from localStorage on mount or when address/contract changes
   useEffect(() => {
-    if (contractAddress && ethersProvider && address) {
+    if (contractAddress && address) {
+      const storedResults = loadDecryptedResultsFromStorage();
+      const storedUserVotes = loadDecryptedUserVotesFromStorage();
+      
+      if (Object.keys(storedResults).length > 0) {
+        setDecryptedResults(storedResults);
+      }
+      
+      if (Object.keys(storedUserVotes).length > 0) {
+        setDecryptedUserVotes(storedUserVotes);
+      }
+    } else {
+      // Clear decrypted results if address or contract changes
+      setDecryptedResults({});
+      setDecryptedUserVotes({});
+    }
+  }, [contractAddress, address, loadDecryptedResultsFromStorage, loadDecryptedUserVotesFromStorage]);
+
+  // Initial load - only run once when dependencies are ready
+  useEffect(() => {
+    if (contractAddress && address && (ethersProvider || chainId === 31337 || walletClient)) {
       loadVotes();
     }
-  }, [contractAddress, ethersProvider, address, loadVotes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractAddress, address, chainId, !!ethersProvider, !!walletClient]);
 
   return {
     contractAddress,
